@@ -71,7 +71,6 @@ Bash:
 
 # ENGLISH(United States)
 
-IPAgent-OS
 IPAgent-OS is an intelligent patent analysis workstation based on Retrieval-Augmented Generation (RAG). This project is forked from [Matthew Shaxted’s original IPAgent](Link to original project) and features a deep underlying refactor and adaptation for localized computing power. It is specifically designed for patent mining and comparison of complex technical solutions.
 
 🚀 Key Improvements Over the Original
