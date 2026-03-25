@@ -68,7 +68,7 @@ with st.sidebar:
         st.rerun()
     
     st.divider()
-    st.caption("项目名称: Terminator - 螺旋藻PBR系统专利分析")
+    st.caption("_")
 
 # --- 5. 主界面布局 ---
 col1, col2 = st.columns([2, 1])
