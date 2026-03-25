@@ -81,7 +81,7 @@ def main():
         print(f"❌ 在 {INPUT_DIR} 文件夹中未找到 XML 或 TXT 文件！")
         return
 
-    print(f"🚀 检测到 {len(target_files)} 个文件，正在启动 M4 多核并行解析...")
+    print(f"🚀 检测到 {len(target_files)} 个文件，正在启动并行解析...")
     
     # 利用 M4 的多核性能
     all_results = []
