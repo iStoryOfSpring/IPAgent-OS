@@ -115,7 +115,7 @@ with col1:
             )
 
             with st.chat_message("assistant"):
-                with st.spinner("DeepSeek 正在扫描专利库..."):
+                with st.spinner("DeepSeek 正在扫描专利库...大约需要1到2分钟"):
                     response = chain.invoke(prompt)
                     st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
