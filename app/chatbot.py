@@ -40,7 +40,7 @@ def init_system():
 
     # 云端 DeepSeek 引擎
     llm = ChatOpenAI(
-        model='deepseek-chat', 
+        model='deepseek-reasoner', 
         openai_api_key=DEEPSEEK_API_KEY, 
         openai_api_base='https://api.deepseek.com',
         temperature=0.1
