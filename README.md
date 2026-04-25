@@ -250,5 +250,3 @@ IPAgent-OS/
 - **Matthew Shaxted** — 初始架构灵感与代码基础
 - **LangChain**、**FAISS**、**DeepSeek**、**硅基流动** — 基础设施支持
 - 所有贡献者与使用者
-
----
