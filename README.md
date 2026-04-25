@@ -16,7 +16,7 @@ English | [简体中文](#简体中文)
 </div>
 
 > A patent analysis intelligent workstation built on Retrieval-Augmented Generation (RAG).  
-> Forked from [Matthew Shaxted's original IPAgent](https://github.com/mdshxt/IPAgent) with deep architectural refactoring, modern LLM integration, and localized computing support.
+> Forked from [Matthew Shaxted's original IPAgent](https://github.com/mattshax/ipagent) with deep architectural refactoring, modern LLM integration, and localized computing support.
 
 ---
 
@@ -145,7 +145,7 @@ This project is open-source under the **MIT License**. See [LICENSE](LICENSE) fo
 <h1 id="简体中文">⚖️ IPAgent-OS：下一代专利分析 RAG 系统</h1>
 
 > 基于检索增强生成（RAG）的专利分析智能工作站。  
-> Fork 自 [Matthew Shaxted 的原始 IPAgent](https://github.com/mdshxt/IPAgent)，进行了深度底层重构与国产化算力适配。
+> Fork 自 [Matthew Shaxted 的原始 IPAgent](https://github.com/mattshax/ipagent)，进行了深度底层重构与国产化算力适配。
 
 ---
 
