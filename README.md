@@ -161,7 +161,7 @@ This project is open-source under the **MIT License**. See [LICENSE](LICENSE) fo
 - 彻底移除老旧且易引发兼容性问题的 `langchain.chains` 模块。
 - 全面采用 **LangChain Expression Language (LCEL)** 管道语法 (`|`) 重写 RAG 链，完美兼容 **Python 3.14** 等前瞻环境。
 
-### 3. M4 芯片与多核并行优化
+### 3. 多核并行优化
 
 - 编写 `01_unified_parser.py` 统一解析器，利用 `multiprocessing.Pool` 榨干多核处理器。
 - 实现海量 Clarivate TXT / USPTO XML 专利文件的并发秒级解析。
