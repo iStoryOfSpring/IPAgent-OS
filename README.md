@@ -134,22 +134,7 @@ This project is open-source under the **MIT License**. See [LICENSE](LICENSE) fo
 - **LangChain**, **FAISS**, **DeepSeek**, and **SiliconFlow** — for providing essential infrastructure.
 - All contributors and users of this project.
 
----
 
-## 📝 Changelog
-
-### 2025-04-25
-- Unified parser rewrite: `01_unified_parser.py` with `multiprocessing.Pool` for concurrent JSON/TXT/XML parsing
-- Full LCEL migration: removed legacy `langchain.chains`, adopted `|` pipeline syntax
-- Embedding migration: OpenAI → SiliconFlow (`BAAI/bge-m3`)
-- LLM migration: GPT-4 → DeepSeek-V3 (`deepseek-chat`)
-- GUI overhaul: CLI → Streamlit dual-pane workstation with sidebar controls
-- Project restructuring: modular `app/` layout, removed deprecated modules
-
-### 2025-04-26
-- Integrated 3-step pipeline into Streamlit UI: parse → vectorize → chat with a single `streamlit run`
-- Added inline API key input fields (password-masked, session-only)
-- Added real-time subprocess execution with progress bars and log expanders for each step
 
 ---
 
