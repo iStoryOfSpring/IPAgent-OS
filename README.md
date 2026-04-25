@@ -37,7 +37,7 @@ English | [简体中文](#简体中文)
 ### 1. Decoupled Computing Engine & Localized Adaptation
 
 - **Embedding**: Replaced expensive OpenAI Embeddings with [SiliconFlow](https://siliconflow.cn/) API, using the `BAAI/bge-m3` multilingual model for high-precision vectorization at a fraction of the cost.
-- **LLM**: Core inference engine migrated from GPT-4 to **DeepSeek-V3** (`deepseek-chat`), delivering exceptional cost-performance and logical rigor for complex technical claims.
+- **LLM**: Core inference engine migrated from GPT-4 to **DeepSeek-V4** (`deepseek-v4-flash`), delivering exceptional cost-performance and logical rigor for complex technical claims.
 
 ### 2. Modern LCEL Architecture
 
@@ -154,7 +154,7 @@ This project is open-source under the **MIT License**. See [LICENSE](LICENSE) fo
 ### 1. 算力引擎全面解耦与国产化替换
 
 - **Embedding**：摒弃昂贵的 OpenAI Embeddings，接入 [硅基流动 (SiliconFlow)](https://siliconflow.cn/) API，采用 `BAAI/bge-m3` 多语言模型进行高精度向量化，大幅降低成本。
-- **LLM**：核心推理引擎从 GPT-4 迁移至 **DeepSeek-V3** (`deepseek-chat`)，处理复杂技术权利要求时兼具高性价比与逻辑严密性。
+- **LLM**：核心推理引擎从 GPT-4 迁移至 **DeepSeek-V4** (`deepseek-v4-flash`)，处理复杂技术权利要求时兼具高性价比与逻辑严密性。
 
 ### 2. 现代化的 LCEL 架构
 
