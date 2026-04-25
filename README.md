@@ -73,33 +73,22 @@ cd IPAgent-OS
 pip install -r requirements.txt
 ```
 
-### 2. Data Parsing
+### 2. Launch the Workstation (Integrated Workflow)
 
-Place your raw patent files (`.txt` or `.xml`) in the `data/` directory, then run the concurrent parser:
-
-```bash
-python 01_unified_parser.py
-```
-
-This generates `parsed_data.csv` in the project root.
-
-### 3. Build Vector Store
-
-Configure your SiliconFlow API key (see [Configuration](#-configuration)), then:
-
-```bash
-python 02_create_vector.py
-```
-
-This generates a local FAISS index in the `embeddings/` directory.
-
-### 4. Launch the Workstation
-
-Configure your DeepSeek API key, then:
+Place your raw patent files (`.txt` or `.xml`) in the `data/` directory, then start the Streamlit app directly:
 
 ```bash
 streamlit run app/chatbot.py
 ```
+
+The app provides an **all-in-one pipeline UI**:
+
+1. **Enter API Keys** — Fill in DeepSeek and SiliconFlow keys in the password fields (session-only, never persisted)
+2. **Step 1: Parse** — Click to run `01_unified_parser.py` with real-time progress bar and log output. Generates `parsed_data.csv`.
+3. **Step 2: Vectorize** — Click to run `02_create_vector.py` and build the local FAISS index in `embeddings/`.
+4. **Step 3: Enter Workstation** — Switch to the patent analysis chat interface.
+
+> **No need to run `01_unified_parser.py` or `02_create_vector.py` manually** — the Streamlit UI handles the entire pipeline. If data and vector index already exist, a quick-skip button takes you straight to the chatbot.
 
 ---
 
@@ -108,12 +97,12 @@ streamlit run app/chatbot.py
 ```
 IPAgent-OS/
 ├── app/
-│   └── chatbot.py          # Streamlit workstation entry point
+│   └── chatbot.py          # Streamlit workstation (integrated pipeline + chat UI)
 ├── data/                   # Raw patent files (.txt / .xml)
 ├── embeddings/             # Local FAISS vector index
 │   └── patent_vector_db/
-├── 01_unified_parser.py    # Concurrent file parser (multi-core)
-├── 02_create_vector.py     # Vector store builder
+├── 01_unified_parser.py    # Concurrent file parser (multi-core, called by UI)
+├── 02_create_vector.py     # Vector store builder (called by UI)
 ├── requirements.txt        # Python dependencies
 ├── LICENSE                 # MIT License
 └── README.md               # This file
@@ -123,15 +112,13 @@ IPAgent-OS/
 
 ## 🔧 Configuration
 
-Set the following environment variables or add them to a `.env` file in the project root:
+No `.env` or configuration file needed. API keys are entered directly into the Streamlit UI on first launch (password-masked, session-only, never persisted to disk).
 
-```bash
-# Required: SiliconFlow API (for embeddings)
-SILICONFLOW_API_KEY=sk-your-key-here
+Required API keys:
+- **DeepSeek API Key** — for LLM inference (`deepseek-reasoner`)
+- **SiliconFlow API Key** — for vector embeddings (`BAAI/bge-m3`)
 
-# Required: DeepSeek API (for LLM inference)
-DEEPSEEK_API_KEY=sk-your-key-here
-```
+Get your free keys at [platform.deepseek.com](https://platform.deepseek.com/) and [cloud.siliconflow.cn](https://cloud.siliconflow.cn/).
 
 ---
 
@@ -158,6 +145,11 @@ This project is open-source under the **MIT License**. See [LICENSE](LICENSE) fo
 - LLM migration: GPT-4 → DeepSeek-V3 (`deepseek-chat`)
 - GUI overhaul: CLI → Streamlit dual-pane workstation with sidebar controls
 - Project restructuring: modular `app/` layout, removed deprecated modules
+
+### 2025-04-26
+- Integrated 3-step pipeline into Streamlit UI: parse → vectorize → chat with a single `streamlit run`
+- Added inline API key input fields (password-masked, session-only)
+- Added real-time subprocess execution with progress bars and log expanders for each step
 
 ---
 
@@ -213,33 +205,22 @@ cd IPAgent-OS
 pip install -r requirements.txt
 ```
 
-### 2. 数据解析
+### 2. 启动工作站（一体化工作流）
 
-将专利原始文件 (`.txt` / `.xml`) 放入 `data/` 目录，运行并发解析器：
-
-```bash
-python 01_unified_parser.py
-```
-
-将在根目录生成 `parsed_data.csv`。
-
-### 3. 构建向量库
-
-配置硅基流动 API 密钥后运行：
-
-```bash
-python 02_create_vector.py
-```
-
-将在 `embeddings/` 目录下生成 FAISS 本地索引。
-
-### 4. 启动可视化工作站
-
-配置 DeepSeek API 密钥后运行：
+将专利原始文件 (`.txt` / `.xml`) 放入 `data/` 目录，直接启动 Streamlit：
 
 ```bash
 streamlit run app/chatbot.py
 ```
+
+应用提供**全流程集成界面**：
+
+1. **填写 API Key** — 在密码框中输入 DeepSeek 和 SiliconFlow 密钥（仅会话有效，不会泄露）
+2. **Step 1：解析** — 点击执行 `01_unified_parser.py`，实时显示进度条和日志，生成 `parsed_data.csv`
+3. **Step 2：向量化** — 点击执行 `02_create_vector.py`，构建 FAISS 本地索引
+4. **Step 3：进入工作站** — 切换至专利分析对话界面
+
+> **无需手动运行 `01_unified_parser.py` 或 `02_create_vector.py`** — Streamlit 界面自动完成整个流程。若已有数据，一键跳过至对话界面。
 
 ---
 
@@ -263,15 +244,13 @@ IPAgent-OS/
 
 ## 🔧 配置
 
-在项目根目录设置以下环境变量或创建 `.env` 文件：
+无需创建 `.env` 或任何配置文件。API 密钥在首次启动时直接填入 Streamlit 界面（密码框保护，仅会话有效，不会写入磁盘）。
 
-```bash
-# 必填：硅基流动 API（用于词嵌入）
-SILICONFLOW_API_KEY=sk-your-key-here
+需要的密钥：
+- **DeepSeek API Key** — 用于 LLM 推理（`deepseek-reasoner`）
+- **SiliconFlow API Key** — 用于向量嵌入（`BAAI/bge-m3`）
 
-# 必填：DeepSeek API（用于 LLM 推理）
-DEEPSEEK_API_KEY=sk-your-key-here
-```
+前往 [platform.deepseek.com](https://platform.deepseek.com/) 和 [cloud.siliconflow.cn](https://cloud.siliconflow.cn/) 免费获取。
 
 ---
 

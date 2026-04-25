@@ -1,8 +1,13 @@
 import os
+import sys
+import io
+import re
+import subprocess
 import pandas as pd
 import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
+from pathlib import Path
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
@@ -13,19 +18,87 @@ load_dotenv()
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner")
+# ================================================================
+# Workflow state keys
+# ================================================================
+WF_KEYS = ["wf_api_deepseek", "wf_api_silicon", "wf_step1_done", "wf_step2_done",
+           "wf_step1_log", "wf_step2_log", "wf_step1_progress", "wf_step2_progress",
+           "wf_step1_status", "wf_step2_status", "wf_show_pipeline"]
 
-SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY")
-SILICONFLOW_BASE_URL = os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
-SILICONFLOW_EMBED_MODEL = os.getenv("SILICONFLOW_EMBED_MODEL", "BAAI/bge-m3")
+for k in WF_KEYS:
+    if k not in st.session_state:
+        if k.endswith("_done"):
+            st.session_state[k] = False
+        elif k.endswith(("_log", "_status")):
+            st.session_state[k] = ""
+        elif k.endswith("_progress"):
+            st.session_state[k] = 0
+        elif k.startswith("wf_api"):
+            st.session_state[k] = ""
+        elif k.startswith("wf_show"):
+            st.session_state[k] = True
 
-if not DEEPSEEK_API_KEY:
-    raise ValueError("DEEPSEEK_API_KEY 未设置，请在 .env 文件中配置")
-if not SILICONFLOW_API_KEY:
-    raise ValueError("SILICONFLOW_API_KEY 未设置，请在 .env 文件中配置")
+# ================================================================
+# Pipeline runner
+# ================================================================
+def _run_step(script_name, progress_key, log_key, status_key, done_key):
+    """Run a Python script and capture output with progress."""
+    st.session_state[status_key] = "running"
+    st.session_state[progress_key] = 0
+    st.session_state[log_key] = ""
 
+    env = os.environ.copy()
+    # inject API keys from session_state if provided
+    if st.session_state["wf_api_deepseek"]:
+        env["DEEPSEEK_API_KEY"] = st.session_state["wf_api_deepseek"]
+    if st.session_state["wf_api_silicon"]:
+        env["SILICONFLOW_API_KEY"] = st.session_state["wf_api_silicon"]
+
+    log_lines = []
+    progress_bar = st.progress(0, text=f"正在执行 {script_name}...")
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, script_name],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            env=env, text=True, bufsize=1
+        )
+
+        total_lines = 0
+        for line in iter(proc.stdout.readline, ""):
+            stripped = line.rstrip("\n")
+            log_lines.append(stripped)
+            st.session_state[log_key] = "\n".join(log_lines)
+            total_lines += 1
+            # simple heuristic: bump progress on meaningful lines
+            if any(m in stripped for m in ("✅", "❌", "⚠️", "成功", "失败", "完成", "保存", "向量库")):
+                st.session_state[progress_key] = min(st.session_state[progress_key] + 15, 90)
+                progress_bar.progress(st.session_state[progress_key] / 100,
+                                      text=stripped[:60])
+            elif "检测" in stripped or "加载" in stripped or "开启" in stripped:
+                st.session_state[progress_key] = min(st.session_state[progress_key] + 10, 70)
+                progress_bar.progress(st.session_state[progress_key] / 100,
+                                      text=stripped[:60])
+
+        proc.wait()
+        if proc.returncode == 0:
+            st.session_state[progress_key] = 100
+            st.session_state[status_key] = "success"
+            st.session_state[done_key] = True
+            progress_bar.progress(1.0, text=f"✅ {script_name} 执行成功")
+        else:
+            st.session_state[status_key] = "error"
+            progress_bar.progress(1.0, text=f"❌ {script_name} 执行失败")
+    except Exception as e:
+        log_lines.append(f"Exception: {e}")
+        st.session_state[log_key] = "\n".join(log_lines)
+        st.session_state[status_key] = "error"
+        progress_bar.progress(1.0, text=f"❌ {script_name} 异常: {e}")
+
+
+# ================================================================
+# Page config & CSS
+# ================================================================
 st.set_page_config(page_title="IPAgent-OS", layout="wide", page_icon="⚖️")
 
 st.markdown("""
@@ -33,7 +106,7 @@ st.markdown("""
     .stApp { background: #f0f2f6; }
     .main > .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 
-    /* ===== Sidebar 白底黑字 ===== */
+    /* ===== Sidebar ===== */
     section[data-testid="stSidebar"] {
         background: #fff;
         border-right: 1px solid #e2e8f0;
@@ -85,14 +158,12 @@ st.markdown("""
     section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {
         border-color: #94a3b8 !important;
     }
-    /* sidebar textarea */
     section[data-testid="stSidebar"] .stTextArea textarea {
         background: #f8fafc !important;
         border: 1px solid #cbd5e1 !important;
         color: #1e293b !important;
         font-size: 0.85rem !important;
     }
-    /* sidebar expander */
     section[data-testid="stSidebar"] [data-testid="stExpander"] {
         background: #f8fafc !important;
         border: 1px solid #e2e8f0 !important;
@@ -110,21 +181,17 @@ st.markdown("""
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
         color: #0f172a !important;
     }
-    /* sidebar expander internal content does NOT get hover gray */
     section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderContent"]:hover {
         background-color: transparent !important;
     }
-    /* sidebar expander internal elements */
     section[data-testid="stSidebar"] [data-testid="stExpander"] p,
     section[data-testid="stSidebar"] [data-testid="stExpander"] label,
     section[data-testid="stSidebar"] [data-testid="stExpander"] .st-emotion-cache-1inwz65 {
         color: #1e293b !important;
     }
-    /* sidebar selectbox inside expander */
     section[data-testid="stSidebar"] [data-testid="stExpander"] div[data-baseweb="select"] > div {
         color: #1e293b !important;
     }
-    /* sidebar radio buttons */
     section[data-testid="stSidebar"] div[role="radiogroup"] label {
         color: #1e293b !important;
     }
@@ -166,6 +233,36 @@ st.markdown("""
         font-size: 0.85rem; font-weight: 600; color: #334155;
         padding: 0.3rem 0;
     }
+
+    /* ===== Pipeline panel ===== */
+    .pipeline-card {
+        background: #fff; border-radius: 12px; padding: 1.5rem 2rem;
+        border: 1px solid #e2e8f0; margin-bottom: 1rem;
+    }
+    .pipeline-card h2 {
+        font-size: 1.2rem; font-weight: 700; color: #0f172a; margin: 0 0 0.2rem 0;
+    }
+    .pipeline-card p {
+        color: #64748b; font-size: 0.85rem; margin: 0 0 1rem 0;
+    }
+    .pipeline-step {
+        background: #f8fafc; border-radius: 8px; padding: 0.8rem 1rem;
+        border: 1px solid #e2e8f0; margin-bottom: 0.6rem;
+    }
+    .pipeline-step.done {
+        border-left: 4px solid #10b981;
+    }
+    .pipeline-step.active {
+        border-left: 4px solid #3b82f6;
+    }
+    .pipeline-step.pending {
+        border-left: 4px solid #cbd5e1;
+    }
+    .pipeline-step.failed {
+        border-left: 4px solid #ef4444;
+    }
+    .pipeline-step h3 { font-size: 0.95rem; margin: 0; color: #0f172a; }
+    .pipeline-step .step-meta { font-size: 0.75rem; color: #94a3b8; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -174,23 +271,43 @@ def google_patent_url(pub_num):
     return f"https://patents.google.com/?q={pub_num}"
 
 
+def _resolve_key(env_name, session_key):
+    """Use session key first, then fall back to env var."""
+    if session_key in st.session_state and st.session_state[session_key]:
+        return st.session_state[session_key]
+    return os.getenv(env_name, "")
+
+
 @st.cache_resource
 def _init_system():
+    sf_key = _resolve_key("SILICONFLOW_API_KEY", "wf_api_silicon")
+    sf_base = os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+    sf_model = os.getenv("SILICONFLOW_EMBED_MODEL", "BAAI/bge-m3")
+    ds_key = _resolve_key("DEEPSEEK_API_KEY", "wf_api_deepseek")
+    ds_base = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    ds_model = os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner")
+
+    if not sf_key or not ds_key:
+        return None, None, None, None
+
     embeddings = OpenAIEmbeddings(
-        openai_api_key=SILICONFLOW_API_KEY,
-        openai_api_base=SILICONFLOW_BASE_URL,
-        model=SILICONFLOW_EMBED_MODEL
+        openai_api_key=sf_key,
+        openai_api_base=sf_base,
+        model=sf_model
     )
     vector_path = "embeddings/patent_vector_db"
-    if not os.path.exists(vector_path):
+    csv_path = "parsed_data.csv"
+    if not os.path.exists(vector_path) or not os.path.exists(csv_path):
         return None, None, None, None
     vectorstore = FAISS.load_local(vector_path, embeddings, allow_dangerous_deserialization=True)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
     llm = ChatOpenAI(
-        model=DEEPSEEK_MODEL, openai_api_key=DEEPSEEK_API_KEY,
-        openai_api_base=DEEPSEEK_BASE_URL, temperature=0.1
+        model=ds_model,
+        openai_api_key=ds_key,
+        openai_api_base=ds_base,
+        temperature=0.1
     )
-    df = pd.read_csv('parsed_data.csv')
+    df = pd.read_csv(csv_path)
     return llm, retriever, df, vectorstore
 
 llm, retriever, df, vectorstore = _init_system()
@@ -233,161 +350,295 @@ def _count_tokens(text):
 
 
 # ================================================================
-# Sidebar — 折叠参数组
+# Pipeline page (shown when workflow not complete)
 # ================================================================
-with st.sidebar:
-    st.markdown(
-        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">'
-        '<span style="font-size:1.4rem;">⚖️</span>'
-        '<span style="font-size:1.1rem;font-weight:700;color:#0f172a;">IPAgent-OS</span>'
-        '</div>',
-        unsafe_allow_html=True
-    )
-    st.caption("Patent Intelligence Workstation")
+def render_pipeline():
+    st.markdown('<div class="pipeline-card">', unsafe_allow_html=True)
+    st.markdown("<h2>⚖️ IPAgent-OS 工作流</h2>", unsafe_allow_html=True)
+    st.markdown("<p>完成以下三步即可启动专利分析工作站。API 密钥仅保存在当前会话中，不会泄露。</p>",
+                unsafe_allow_html=True)
 
-    if df is not None:
-        st.success(f"已加载 {len(df)} 篇专利")
+    # --- API Keys ---
+    c1, c2 = st.columns(2)
+    with c1:
+        st.text_input("🔑 DeepSeek API Key", type="password",
+                      key="wf_api_deepseek",
+                      placeholder="sk-...",
+                      help="用于 LLM 推理（deepseek-chat / deepseek-reasoner）")
+    with c2:
+        st.text_input("🔑 SiliconFlow API Key", type="password",
+                      key="wf_api_silicon",
+                      placeholder="sk-...",
+                      help="用于向量嵌入（BAAI/bge-m3）")
 
-    # ----- 检索 -----
-    with st.expander("检索设置", expanded=False):
-        search_type_label = st.selectbox(
-            "检索模式", options=list(RETRIEVAL_MODES.keys()), index=0
-        )
-        search_type = RETRIEVAL_MODES[search_type_label]
-        retrieve_k = st.number_input("返回数量", 1, 50, 10)
+    st.markdown("---")
 
-        fetch_k = 30
-        if search_type == "mmr":
-            fetch_k = st.number_input("候选数", retrieve_k, 100, 30)
+    # --- Step 1 ---
+    s1_done = st.session_state["wf_step1_done"]
+    s1_status = st.session_state["wf_step1_status"]
+    s1_cls = "done" if s1_done else "failed" if s1_status == "error" else "active" if s1_status == "running" else "pending"
 
-        score_threshold = 0.0
-        if search_type == "similarity_score_threshold":
-            score_threshold = st.slider("相似度阈值", 0.0, 1.0, 0.5)
+    with st.container():
+        st.markdown(f'<div class="pipeline-step {s1_cls}">', unsafe_allow_html=True)
+        sc1, sc2 = st.columns([6, 2])
+        with sc1:
+            st.markdown("**Step 1：解析专利数据** — 将 `data/` 目录下的原始专利文件 (.txt / .xml) 解析为 `parsed_data.csv`")
+        with sc2:
+            if s1_done:
+                st.markdown('<span style="color:#10b981;">✅ 已完成</span>', unsafe_allow_html=True)
+            elif s1_status == "running":
+                st.markdown('<span style="color:#3b82f6;">⏳ 执行中...</span>', unsafe_allow_html=True)
+            elif s1_status == "error":
+                st.markdown('<span style="color:#ef4444;">❌ 失败</span>', unsafe_allow_html=True)
+                if st.button("重试 Step 1", key="retry_s1"):
+                    _run_step("01_unified_parser.py",
+                              "wf_step1_progress", "wf_step1_log",
+                              "wf_step1_status", "wf_step1_done")
+                    st.rerun()
+            else:
+                if st.button("▶ 执行 Step 1", key="run_s1",
+                             disabled=not (st.session_state["wf_api_deepseek"] or st.session_state["wf_api_silicon"])):
+                    _run_step("01_unified_parser.py",
+                              "wf_step1_progress", "wf_step1_log",
+                              "wf_step1_status", "wf_step1_done")
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        if vectorstore is not None:
-            retriever = _rebuild_retriever(
-                vectorstore, search_type, retrieve_k, score_threshold, fetch_k
-            )
+    # Step 1 log
+    if st.session_state["wf_step1_log"]:
+        with st.expander("Step 1 执行日志", expanded=False):
+            st.code(st.session_state["wf_step1_log"], language="text")
 
-    # ----- 生成 -----
-    with st.expander("生成设置", expanded=False):
-        temperature = st.slider("发散程度", 0.0, 1.0, 0.1)
-        st.caption("注意: DeepSeek Reasoner 不支持 temperature 参数，调节后不生效。若需控制发散程度请切换模型。")
-        max_tokens = st.slider("最大输出长度", 256, 4096, 2048, step=128)
+    # --- Step 2 ---
+    s2_done = st.session_state["wf_step2_done"]
+    s2_status = st.session_state["wf_step2_status"]
+    s2_active = s1_done and not s2_done
+    s2_cls = "done" if s2_done else "failed" if s2_status == "error" else "active" if s2_status == "running" else "active" if s2_active else "pending"
 
-    # ----- 角色 -----
-    with st.expander("分析角色", expanded=False):
-        role_preset = st.radio(
-            "回答风格",
-            [
-                "专利律师（严谨专业）",
-                "技术专家（深入浅出）",
-                "商业分析师（市场视角）",
-            ],
-            index=0, label_visibility="collapsed"
-        )
-        if role_preset == "专利律师（严谨专业）":
-            role_instruction = "你是一个资深的专利律师和技术专家。请基于以下专利片段回答问题。要求：逻辑严密、分点叙述、若涉及技术方案请详细解构。"
-        elif role_preset == "技术专家（深入浅出）":
-            role_instruction = "你是一个跨领域的技术专家。请用通俗易懂的语言解释这些专利中的技术方案，注重原理说明和实际应用场景，帮助非专利专业人员理解。"
-        else:
-            role_instruction = "你是一个商业分析师与知识产权顾问。请从市场竞争、技术趋势、商业价值等角度分析这些专利，给出战略层面的见解。\n要求：指出潜在应用领域、竞争对手动向、商业化可能性。"
-        extra_instruction = st.text_area(
-            "附加要求（可选）", placeholder="例：用表格对比各专利的技术差异", height=70,
-            label_visibility="collapsed"
-        )
+    with st.container():
+        st.markdown(f'<div class="pipeline-step {s2_cls}">', unsafe_allow_html=True)
+        sc1, sc2 = st.columns([6, 2])
+        with sc1:
+            st.markdown("**Step 2：构建向量库** — 使用 SiliconFlow 将专利数据向量化并存储为 FAISS 索引 (`embeddings/patent_vector_db/`)")
+        with sc2:
+            if s2_done:
+                st.markdown('<span style="color:#10b981;">✅ 已完成</span>', unsafe_allow_html=True)
+            elif s2_status == "running":
+                st.markdown('<span style="color:#3b82f6;">⏳ 执行中...</span>', unsafe_allow_html=True)
+            elif s2_status == "error":
+                st.markdown('<span style="color:#ef4444;">❌ 失败</span>', unsafe_allow_html=True)
+                if st.button("重试 Step 2", key="retry_s2"):
+                    _run_step("02_create_vector.py",
+                              "wf_step2_progress", "wf_step2_log",
+                              "wf_step2_status", "wf_step2_done")
+                    st.rerun()
+            else:
+                s2_btn_disabled = not s1_done or not st.session_state["wf_api_silicon"]
+                s2_btn_label = "▶ 执行 Step 2" if s1_done else "⏳ 请先完成 Step 1"
+                if st.button(s2_btn_label, key="run_s2", disabled=s2_btn_disabled):
+                    _run_step("02_create_vector.py",
+                              "wf_step2_progress", "wf_step2_log",
+                              "wf_step2_status", "wf_step2_done")
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # ----- 操作 -----
-    st.divider()
-    if st.button("清空对话历史", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.sources_map = {}
-        st.session_state.highlight_indices = set()
-        st.rerun()
+    if st.session_state["wf_step2_log"]:
+        with st.expander("Step 2 执行日志", expanded=False):
+            st.code(st.session_state["wf_step2_log"], language="text")
 
-    if st.session_state.messages:
-        chat_lines = [
-            f"{'用户' if m['role'] == 'user' else 'AI助理'}:\n{m['content']}"
-            for m in st.session_state.messages
-        ]
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        st.download_button(
-            label="导出对话记录",
-            data="\n\n---\n\n".join(chat_lines),
-            file_name=f"ipagent_chat_{ts}.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
+    # --- Step 3 ---
+    s3_ready = s1_done and s2_done
+    s3_cls = "done" if s3_ready else "pending"
+    with st.container():
+        st.markdown(f'<div class="pipeline-step {s3_cls}">', unsafe_allow_html=True)
+        sc1, sc2 = st.columns([6, 2])
+        with sc1:
+            st.markdown("**Step 3：启动工作站** — 进入专利分析对话界面")
+        with sc2:
+            if s3_ready:
+                if st.button("🚀 进入工作站", key="enter_ws", use_container_width=False):
+                    st.session_state["wf_show_pipeline"] = False
+                    # reload system resources
+                    st.cache_resource.clear()
+                    st.rerun()
+            else:
+                st.markdown('<span style="color:#94a3b8;">⏳ 请先完成 Step 1 和 Step 2</span>',
+                            unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
-    if df is not None:
-        total_chars = int(df["title"].str.len().sum() + df["abstract"].str.len().sum())
-        total_tokens = _count_tokens(total_chars)
+    # --- Quick skip: show "already set up" link ---
+    if os.path.exists("parsed_data.csv") and os.path.exists("embeddings/patent_vector_db"):
+        st.markdown("---")
+        if st.button("检测到已有数据，直接进入工作站 →", use_container_width=True):
+            st.session_state["wf_show_pipeline"] = False
+            st.cache_resource.clear()
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ================================================================
+# Main area split
+# ================================================================
+if st.session_state["wf_show_pipeline"]:
+    render_pipeline()
+else:
+    # ================================================================
+    # Sidebar — 折叠参数组 (only in workstation mode)
+    # ================================================================
+    with st.sidebar:
         st.markdown(
-            f'<div class="sys-info">'
-            f'专利数: {len(df)} | 估算 tokens: {total_tokens:,}<br>'
-            f'模型: DeepSeek Reasoner + BGE-M3</div>',
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">'
+            '<span style="font-size:1.4rem;">⚖️</span>'
+            '<span style="font-size:1.1rem;font-weight:700;color:#0f172a;">IPAgent-OS</span>'
+            '</div>',
             unsafe_allow_html=True
         )
+        st.caption("Patent Intelligence Workstation")
 
-    st.caption("DeepSeek Reasoner · SiliconFlow BGE-M3")
+        if st.button("« 返回工作流", use_container_width=True):
+            st.session_state["wf_show_pipeline"] = True
+            st.rerun()
 
-# ================================================================
-# 主区域 — 3:1 对话优先
-# ================================================================
-col_dialogue, col_preview = st.columns([3, 1])
+        if df is not None:
+            st.success(f"已加载 {len(df)} 篇专利")
 
-with col_preview:
-    st.markdown('<div class="preview-label">专利库</div>', unsafe_allow_html=True)
-    if df is not None:
-        if st.session_state.highlight_indices:
-            def hl(row):
-                return ['background-color: #fff3cd'] * len(row) if row.name in st.session_state.highlight_indices else [''] * len(row)
-            st.dataframe(df.style.apply(hl, axis=1), height=700, use_container_width=True)
-        else:
-            st.dataframe(df, height=700, use_container_width=True)
+        with st.expander("检索设置", expanded=False):
+            search_type_label = st.selectbox(
+                "检索模式", options=list(RETRIEVAL_MODES.keys()), index=0
+            )
+            search_type = RETRIEVAL_MODES[search_type_label]
+            retrieve_k = st.number_input("返回数量", 1, 50, 10)
 
-with col_dialogue:
-    st.markdown('<div class="preview-label">对话</div>', unsafe_allow_html=True)
+            fetch_k = 30
+            if search_type == "mmr":
+                fetch_k = st.number_input("候选数", retrieve_k, 100, 30)
 
-    for idx, msg in enumerate(st.session_state.messages):
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-        if msg["role"] == "assistant" and idx in st.session_state.sources_map:
-            for s in st.session_state.sources_map[idx]:
-                st.markdown(
-                    f'<div class="source-patent">检索来源: <a href="{google_patent_url(s["publication_number"])}" target="_blank">{s["publication_number"]}</a> — {s["title"]}</div>',
-                    unsafe_allow_html=True
+            score_threshold = 0.0
+            if search_type == "similarity_score_threshold":
+                score_threshold = st.slider("相似度阈值", 0.0, 1.0, 0.5)
+
+            if vectorstore is not None:
+                retriever = _rebuild_retriever(
+                    vectorstore, search_type, retrieve_k, score_threshold, fetch_k
                 )
 
-    if prompt := st.chat_input("请下达分析指令（例如: 总结这些专利的技术路线）"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.expander("生成设置", expanded=False):
+            temperature = st.slider("发散程度", 0.0, 1.0, 0.1)
+            st.caption("注意: DeepSeek Reasoner 不支持 temperature 参数，调节后不生效。若需控制发散程度请切换模型。")
+            max_tokens = st.slider("最大输出长度", 256, 4096, 2048, step=128)
 
-        if llm and retriever and df is not None:
-            retrieved_docs = retriever.invoke(prompt)
-            context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
+        with st.expander("分析角色", expanded=False):
+            role_preset = st.radio(
+                "回答风格",
+                [
+                    "专利律师（严谨专业）",
+                    "技术专家（深入浅出）",
+                    "商业分析师（市场视角）",
+                ],
+                index=0, label_visibility="collapsed"
+            )
+            if role_preset == "专利律师（严谨专业）":
+                role_instruction = "你是一个资深的专利律师和技术专家。请基于以下专利片段回答问题。要求：逻辑严密、分点叙述、若涉及技术方案请详细解构。"
+            elif role_preset == "技术专家（深入浅出）":
+                role_instruction = "你是一个跨领域的技术专家。请用通俗易懂的语言解释这些专利中的技术方案，注重原理说明和实际应用场景，帮助非专利专业人员理解。"
+            else:
+                role_instruction = "你是一个商业分析师与知识产权顾问。请从市场竞争、技术趋势、商业价值等角度分析这些专利，给出战略层面的见解。\n要求：指出潜在应用领域、竞争对手动向、商业化可能性。"
+            extra_instruction = st.text_area(
+                "附加要求（可选）", placeholder="例：用表格对比各专利的技术差异", height=70,
+                label_visibility="collapsed"
+            )
 
-            sources = []
-            for doc in retrieved_docs:
-                meta = doc.metadata
-                row_idx = meta.get("row")
-                pub_num = ""
-                title = ""
-                if row_idx is not None:
-                    row_idx = int(row_idx)
-                    if row_idx < len(df):
-                        pub_num = df.iloc[row_idx].get("publication_number", "")
-                        title = df.iloc[row_idx].get("title", "")
-                if pub_num:
-                    sources.append({"publication_number": pub_num, "title": title or "无标题"})
-                if row_idx is not None:
-                    st.session_state.highlight_indices.add(row_idx)
+        st.divider()
+        if st.button("清空对话历史", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.sources_map = {}
+            st.session_state.highlight_indices = set()
+            st.rerun()
 
-            llm.temperature = temperature
-            llm.max_tokens = max_tokens
+        if st.session_state.messages:
+            chat_lines = [
+                f"{'用户' if m['role'] == 'user' else 'AI助理'}:\n{m['content']}"
+                for m in st.session_state.messages
+            ]
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                label="导出对话记录",
+                data="\n\n---\n\n".join(chat_lines),
+                file_name=f"ipagent_chat_{ts}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
 
-            suffix = f"\n\n{extra_instruction.strip()}\n\n专业建议:" if (extra_instruction and extra_instruction.strip()) else "\n\n专业建议:"
-            template = role_instruction + """
+        st.divider()
+        if df is not None:
+            total_chars = int(df["title"].str.len().sum() + df["abstract"].str.len().sum())
+            total_tokens = _count_tokens(total_chars)
+            st.markdown(
+                f'<div class="sys-info">'
+                f'专利数: {len(df)} | 估算 tokens: {total_tokens:,}<br>'
+                f'模型: DeepSeek Reasoner + BGE-M3</div>',
+                unsafe_allow_html=True
+            )
+
+        st.caption("DeepSeek Reasoner · SiliconFlow BGE-M3")
+
+    # ================================================================
+    # Main area — 对话 + 专利库
+    # ================================================================
+    col_dialogue, col_preview = st.columns([3, 1])
+
+    with col_preview:
+        st.markdown('<div class="preview-label">专利库</div>', unsafe_allow_html=True)
+        if df is not None:
+            if st.session_state.highlight_indices:
+                def hl(row):
+                    return ['background-color: #fff3cd'] * len(row) if row.name in st.session_state.highlight_indices else [''] * len(row)
+                st.dataframe(df.style.apply(hl, axis=1), height=700, use_container_width=True)
+            else:
+                st.dataframe(df, height=700, use_container_width=True)
+
+    with col_dialogue:
+        st.markdown('<div class="preview-label">对话</div>', unsafe_allow_html=True)
+
+        for idx, msg in enumerate(st.session_state.messages):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+            if msg["role"] == "assistant" and idx in st.session_state.sources_map:
+                for s in st.session_state.sources_map[idx]:
+                    st.markdown(
+                        f'<div class="source-patent">检索来源: <a href="{google_patent_url(s["publication_number"])}" target="_blank">{s["publication_number"]}</a> — {s["title"]}</div>',
+                        unsafe_allow_html=True
+                    )
+
+        if prompt := st.chat_input("请下达分析指令（例如: 总结这些专利的技术路线）"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+
+            if llm and retriever and df is not None:
+                retrieved_docs = retriever.invoke(prompt)
+                context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
+
+                sources = []
+                for doc in retrieved_docs:
+                    meta = doc.metadata
+                    row_idx = meta.get("row")
+                    pub_num = ""
+                    title = ""
+                    if row_idx is not None:
+                        row_idx = int(row_idx)
+                        if row_idx < len(df):
+                            pub_num = df.iloc[row_idx].get("publication_number", "")
+                            title = df.iloc[row_idx].get("title", "")
+                    if pub_num:
+                        sources.append({"publication_number": pub_num, "title": title or "无标题"})
+                    if row_idx is not None:
+                        st.session_state.highlight_indices.add(row_idx)
+
+                llm.temperature = temperature
+                llm.max_tokens = max_tokens
+
+                suffix = f"\n\n{extra_instruction.strip()}\n\n专业建议:" if (extra_instruction and extra_instruction.strip()) else "\n\n专业建议:"
+                template = role_instruction + """
 
 检索到的专利上下文:
 {context}
@@ -395,24 +646,24 @@ with col_dialogue:
 分析指令: {question}
 """ + suffix
 
-            chain = (
-                {"context": lambda _: context_text, "question": RunnablePassthrough()}
-                | ChatPromptTemplate.from_template(template)
-                | llm
-                | StrOutputParser()
-            )
+                chain = (
+                    {"context": lambda _: context_text, "question": RunnablePassthrough()}
+                    | ChatPromptTemplate.from_template(template)
+                    | llm
+                    | StrOutputParser()
+                )
 
-            with st.chat_message("assistant"):
-                with st.spinner("DeepSeek 正在扫描专利库..."):
-                    response = chain.invoke(prompt)
-                    st.markdown(response)
-                for s in sources:
-                    st.markdown(
-                        f'<div class="source-patent">检索来源: <a href="{google_patent_url(s["publication_number"])}" target="_blank">{s["publication_number"]}</a> — {s["title"]}</div>',
-                        unsafe_allow_html=True
-                    )
+                with st.chat_message("assistant"):
+                    with st.spinner("DeepSeek 正在扫描专利库..."):
+                        response = chain.invoke(prompt)
+                        st.markdown(response)
+                    for s in sources:
+                        st.markdown(
+                            f'<div class="source-patent">检索来源: <a href="{google_patent_url(s["publication_number"])}" target="_blank">{s["publication_number"]}</a> — {s["title"]}</div>',
+                            unsafe_allow_html=True
+                        )
 
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.session_state.sources_map[len(st.session_state.messages) - 1] = sources
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.session_state.sources_map[len(st.session_state.messages) - 1] = sources
 
-            st.rerun()
+                st.rerun()
