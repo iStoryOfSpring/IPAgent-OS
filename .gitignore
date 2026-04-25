@@ -156,6 +156,13 @@ cython_debug/
 *.pkl
 *.csv
 *.xml
+*.txt
 .creds.yaml
 .chroma/
 *.zip
+
+# macOS
+.DS_Store
+
+# Patent vector index (large / auto-generated)
+embeddings/patent_vector_db/
