@@ -254,3 +254,9 @@ IPAgent-OS/
 ## 🥚 彩蛋
 
 - **保留了一些bug**, 供大家自由探索。如有问题请**及时反馈**。
+
+## 停止独立维护 · End of independent maintenance
+
+IPAgent-OS 已结束独立开发与维护，现有代码和历史保留供查阅。后续功能开发、问题反馈与修复集中到 [PatentAgent](https://github.com/iStoryOfSpring/PatentAgent)。迁移时，请按 PatentAgent 支持的格式重新导入获授权使用的原始文件。旧 FAISS 索引请留在原环境。
+
+Independent development and maintenance of IPAgent-OS have ended. This repository remains available as a historical reference. New development, issue reporting, and fixes continue in [PatentAgent](https://github.com/iStoryOfSpring/PatentAgent). To migrate, re-import authorized source files in a format supported by PatentAgent and keep legacy FAISS indexes with the original installation.
